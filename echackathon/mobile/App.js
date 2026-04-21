@@ -1,357 +1,345 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, StatusBar, Platform } from 'react-native';
+import React, { useState, useCallback, useRef } from 'react';
+import { 
+  StyleSheet, Text, View, ScrollView, TouchableOpacity, 
+  StatusBar, Modal, Dimensions, Platform, Animated
+} from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Plus, LayoutGrid, User, Power, Thermometer, Wind, Grid2X2, Lock, Video, VideoOff, Upload } from 'lucide-react-native';
-import axios from 'axios';
-import * as ImagePicker from 'expo-image-picker';
-import { Video as ExpoVideo } from 'expo-av';
+import { 
+  Menu, Plus, Wifi, Lightbulb, Thermometer, Fan, 
+  X, AlertTriangle, CloudRain, Eye, ShieldAlert, Droplets, Baby
+} from 'lucide-react-native';
+import { Audio } from 'expo-av';
 
-const VideoCard = ({ device, onToggle, onUpload, baseUrl }) => {
-  const isActive = device.status;
-  const videoSource = device.video_url ? { uri: `${baseUrl}${device.video_url}` } : null;
-  
-  return (
-    <View style={styles.videoCard}>
-      <View style={styles.videoPreview}>
-        {isActive ? (
-          <View style={styles.videoActive}>
-            {videoSource ? (
-              <ExpoVideo
-                source={videoSource}
-                rate={1.0}
-                volume={1.0}
-                isMuted={false}
-                resizeMode="cover"
-                shouldPlay
-                isLooping
-                style={styles.fullVideo}
-              />
-            ) : (
-              <LinearGradient colors={['#1F2937', '#111827']} style={styles.videoContent}>
-                <Video size={48} color="#10B981" />
-                <View style={styles.liveBadge}><Text style={styles.liveText}>LIVE</Text></View>
-              </LinearGradient>
-            )}
-          </View>
-        ) : (
-          <View style={[styles.videoContent, styles.videoOffline]}>
-            <VideoOff size={48} color="#4B5563" />
-            <Text style={styles.offlineText}>Camera Offline</Text>
-          </View>
-        )}
-      </View>
-      <View style={styles.videoFooter}>
-        <View>
-          <Text style={styles.deviceName}>{device.name}</Text>
-          <Text style={styles.roomName}>{device.room}</Text>
-        </View>
-        <View style={styles.videoActions}>
-          <TouchableOpacity 
-            onPress={() => onUpload(device.id)}
-            style={styles.uploadBtn}
-          >
-            <Upload size={18} color="#94A3B8" />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            onPress={() => onToggle(device.id)}
-            style={[styles.powerBtn, isActive && styles.activePowerBtn]}
-          >
-            <Power size={18} color={isActive ? "#FFFFFF" : "#94A3B8"} />
-          </TouchableOpacity>
-        </View>
-      </View>
-    </View>
-  );
+const { width } = Dimensions.get('window');
+
+const COLORS = {
+  background: '#F4F1ED',    // Soft warm off-white/beige
+  text: '#8D7B68',          // Deep warm brown
+  active: '#C89B7B',        // Burnt orange/gold for active states
+  inactive: 'rgba(141, 123, 104, 0.2)', // Translucent brown
+  white: '#FFFFFF',
+  menuBg: '#5A4634',        // Solid deep brown
+  glassBg: 'rgba(255, 255, 255, 0.65)'  // Frosted glass effect
 };
 
-// Components
-const IconButton = ({ Icon, size = 24, color = "#F1F5F9", onPress }) => (
-  <TouchableOpacity onPress={onPress} style={styles.iconButton}>
-    <Icon size={size} color={color} />
-  </TouchableOpacity>
-);
+const ROOMS = [
+  { id: '1', name: 'Living Room', devices: 5, temp: '27°', baseColor: '#E8E2D9' },
+  { id: '2', name: 'Kitchen', devices: 3, temp: '24°', baseColor: '#E2D9D0' },
+  { id: '3', name: 'Dining', devices: 2, temp: '25°', baseColor: '#DCD3C7' },
+];
 
-const CategoryTab = ({ name, active, onPress }) => (
-  <TouchableOpacity onPress={onPress} style={[styles.tab, active && styles.activeTab]}>
-    <Text style={[styles.tabText, active && styles.activeTabText]}>{name}</Text>
-  </TouchableOpacity>
-);
-
-const DeviceCard = ({ device, onToggle }) => {
-  const isActive = device.status;
-  
-  return (
-    <View style={styles.deviceCard}>
-      <View style={styles.cardHeader}>
-        <View style={[styles.iconContainer, isActive && styles.activeIconContainer]}>
-          {device.type === 'thermostat' ? (
-            <View style={styles.thermostatIcon}>
-              <Text style={styles.thermostatValue}>{device.value.replace('°C', '')}</Text>
-            </View>
-          ) : (
-            <Text style={{ fontSize: 24 }}>
-              {device.type === 'light' ? '💡' : device.type === 'air_purifier' ? '🌀' : device.type === 'sweeper' ? '🧹' : device.type === 'switch' ? '🔌' : '⚙️'}
-            </Text>
-          )}
-        </View>
-        <TouchableOpacity 
-          onPress={() => onToggle(device.id)}
-          style={[styles.powerBtn, isActive && styles.activePowerBtn]}
-        >
-          <Power size={16} color={isActive ? "#FFFFFF" : "#94A3B8"} />
-        </TouchableOpacity>
-      </View>
-      <View style={styles.cardInfo}>
-        <Text style={styles.deviceName}>{device.name}</Text>
-        <Text style={styles.roomName}>{device.room}</Text>
-      </View>
-    </View>
-  );
-};
-
-const ACCard = ({ device, onToggle, onSettingUpdate }) => {
-  const isActive = device.status;
-  
-  return (
-    <View style={styles.acCard}>
-      <View style={styles.acHeader}>
-        <View style={styles.acInfo}>
-          <Text style={styles.acIcon}>❄️</Text>
-          <View>
-            <Text style={styles.acTitle}>{device.name}</Text>
-            <Text style={styles.roomName}>{device.room}</Text>
-          </View>
-        </View>
-        <TouchableOpacity 
-          onPress={() => onToggle(device.id)}
-          style={[styles.powerBtn, isActive && styles.activePowerBtn]}
-        >
-          <Power size={20} color={isActive ? "#FFFFFF" : "#94A3B8"} />
-        </TouchableOpacity>
-      </View>
-      
-      <View style={styles.acControls}>
-        <TouchableOpacity style={styles.acControlItem} onPress={() => onSettingUpdate(device.id, 'value')}>
-            <Thermometer size={20} color="#38BDF8" />
-            <Text style={styles.controlLabel}>Temp.</Text>
-            <Text style={styles.controlValue}>{device.value || "25°C"}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.acControlItem} onPress={() => onSettingUpdate(device.id, 'wind')}>
-            <Wind size={20} color="#10B981" />
-            <Text style={styles.controlLabel}>Wind</Text>
-            <Text style={styles.controlValue}>{device.wind || "Strong"}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.acControlItem} onPress={() => onSettingUpdate(device.id, 'mode')}>
-            <Grid2X2 size={20} color="#F59E0B" />
-            <Text style={styles.controlLabel}>Model</Text>
-            <Text style={styles.controlValue}>{device.mode || "Mode 1"}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-            style={styles.acControlItem} 
-            onPress={() => onSettingUpdate(device.id, 'child_lock')}
-        >
-            <Lock size={20} color={device.child_lock ? "#EF4444" : "#94A3B8"} />
-            <Text style={styles.controlLabel}>Child lock</Text>
-            <Text style={styles.controlValue}>{device.child_lock ? "Turn on" : "Turn off"}</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-};
-
-// Config
-const BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
+const ALERTS = [
+  { title: 'Audio Alert', message: 'Warning: Baby crying detected in Nursery.', icon: Baby },
+  { title: 'AQI Alert', message: 'Poor Air Quality outside. Closing smart windows.', icon: CloudRain },
+  { title: 'Elderly/Medication', message: 'Medication missed. Escalating alert to family.', icon: AlertTriangle },
+  { title: 'Vision Alert', message: 'Tripping hazards (shoes/cables) detected in hallway walkway.', icon: Eye },
+  { title: 'Weather Alert', message: '60% chance of rain at 2:00 PM. Secure laundry.', icon: CloudRain },
+  { title: 'Pet Hazard', message: 'Unusual pet behavior detected in Living Room.', icon: AlertTriangle },
+  { title: 'Security Alert', message: 'Unrecognized movement detected at front door.', icon: ShieldAlert },
+  { title: 'Water Alert', message: "Water leak detected. 'Syntax is full!'", icon: Droplets },
+  { title: 'Emergency', message: 'Glass break detected in Kitchen.', icon: AlertTriangle },
+];
 
 export default function App() {
-  const [devices, setDevices] = useState([
-    {"id": "1", "name": "Light", "room": "Living room", "type": "light", "status": true, "icon": "lightbulb", "video_url": null},
-    {"id": "2", "name": "Thermostat", "room": "Living room", "type": "thermostat", "status": false, "value": "30.5°C", "icon": "thermometer", "video_url": null},
-    {"id": "3", "name": "Air purifier", "room": "Living room", "type": "air_purifier", "status": true, "icon": "wind", "video_url": null},
-    {"id": "4", "name": "Switch", "room": "Living room", "type": "switch", "status": true, "icon": "toggle-right", "video_url": null},
-    {"id": "5", "name": "Air conditioner", "room": "Living room", "type": "ac", "status": true, "value": "25°C", "icon": "snowflake", "wind": "Strong", "mode": "Mode 1", "child_lock": true, "video_url": null},
-    {"id": "6", "name": "Sweeper", "room": "Living room", "type": "sweeper", "status": false, "icon": "bot", "video_url": null},
-    {"id": "7", "name": "Light", "room": "Bedroom", "type": "light", "status": false, "icon": "lightbulb", "video_url": null},
-    {"id": "8", "name": "Light", "room": "Kitchen", "type": "light", "status": true, "icon": "lightbulb", "video_url": null},
-    {"id": "9", "name": "Entrance Cam", "room": "Living room", "type": "video", "status": true, "icon": "video", "video_url": null},
-    {"id": "10", "name": "Nursery Cam", "room": "Bedroom", "type": "video", "status": true, "icon": "video", "video_url": null},
-    {"id": "11", "name": "Kitchen Cam", "room": "Kitchen", "type": "video", "status": false, "icon": "video", "video_url": null},
-  ]);
-  const [categories] = useState(["Favorites", "Living room", "Bedroom", "Kitchen"]);
-  const [activeCategory, setActiveCategory] = useState("Living room");
+  const [activeRoom, setActiveRoom] = useState(ROOMS[0]);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [demoModalVisible, setDemoModalVisible] = useState(false);
+  
+  const [deviceStats, setDeviceStats] = useState({
+    wifi: true,
+    light: false,
+    temp: true,
+    fan: false,
+  });
 
-  useEffect(() => {
-    fetchDevices();
+  const [currentAlert, setCurrentAlert] = useState(null);
+  
+  // Alert Banner Animation
+  const alertTranslateY = useRef(new Animated.Value(-200)).current;
+
+  const showAlert = useCallback(async (alert) => {
+    setCurrentAlert(alert);
+    Animated.spring(alertTranslateY, {
+      toValue: 0,
+      tension: 90,
+      friction: 15,
+      useNativeDriver: true
+    }).start();
+    
+    // expo-av audio placeholder
+    try {
+       // const { sound } = await Audio.Sound.createAsync(require('./assets/alert.mp3'));
+       // await sound.playAsync();
+       console.log('Audio activated for:', alert.title);
+    } catch (e) {
+       console.warn('Audio placeholder error:', e);
+    }
+    
+    setTimeout(() => {
+      Animated.timing(alertTranslateY, {
+        toValue: -200,
+        duration: 300,
+        useNativeDriver: true
+      }).start();
+    }, 4000);
   }, []);
 
-  const fetchDevices = async () => {
-    try {
-      // NOTE: For Android Emulator use http://10.0.2.2:8000
-      const response = await axios.get(`${BASE_URL}/devices`);
-      setDevices(response.data);
-    } catch (error) {
-      console.error("Error fetching devices:", error);
+  const alertAnimatedStyle = { transform: [{ translateY: alertTranslateY }] };
+
+  // Drawer Animation
+  const drawerTranslateX = useRef(new Animated.Value(-width)).current;
+
+  const toggleMenu = () => {
+    if (menuOpen) {
+      Animated.timing(drawerTranslateX, {
+        toValue: -width,
+        duration: 300,
+        useNativeDriver: true
+      }).start();
+    } else {
+      Animated.timing(drawerTranslateX, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true
+      }).start();
     }
+    setMenuOpen(!menuOpen);
   };
 
-  const handleToggle = async (id) => {
-    try {
-      const response = await axios.post(`${BASE_URL}/devices/${id}/toggle`);
-      setDevices(devices.map(d => d.id === id ? { ...d, status: response.data.device_status } : d));
-    } catch (error) {
-      console.error("Error toggling device:", error);
+  const drawerAnimatedStyle = { transform: [{ translateX: drawerTranslateX }] };
+
+  // Demo hidden tap implementation
+  const tapCount = useRef(0);
+  const tapTimer = useRef(null);
+
+  const handleHiddenTap = () => {
+    tapCount.current += 1;
+    if (tapTimer.current) clearTimeout(tapTimer.current);
+    
+    tapTimer.current = setTimeout(() => {
+      tapCount.current = 0;
+    }, 1000);
+
+    if (tapCount.current >= 3) {
+      tapCount.current = 0;
+      setDemoModalVisible(true);
     }
   };
-
-  const handleSettingUpdate = async (id, field) => {
-    const device = devices.find(d => d.id === id);
-    if (!device) return;
-
-    let updatedDevices = [...devices];
-    const index = updatedDevices.findIndex(d => d.id === id);
-
-    if (field === 'child_lock') {
-        updatedDevices[index].child_lock = !updatedDevices[index].child_lock;
-    } else if (field === 'value') {
-        const currentTemp = parseInt(device.value);
-        updatedDevices[index].value = `${currentTemp >= 30 ? 16 : currentTemp + 1}°C`;
-    } else if (field === 'wind') {
-        const modes = ["Low", "Medium", "Strong"];
-        const currentIndex = modes.indexOf(device.wind || "Strong");
-        updatedDevices[index].wind = modes[(currentIndex + 1) % modes.length];
-    } else if (field === 'mode') {
-        const modes = ["Mode 1", "Mode 2", "Mode 3"];
-        const currentIndex = modes.indexOf(device.mode || "Mode 1");
-        updatedDevices[index].mode = modes[(currentIndex + 1) % modes.length];
-    }
-
-    setDevices(updatedDevices);
-  };
-
-  const handleUpload = async (id) => {
-    let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-      allowsEditing: true,
-      aspect: [16, 9],
-      quality: 1,
-    });
-
-    if (!result.canceled) {
-      const videoUri = result.assets[0].uri;
-      const filename = videoUri.split('/').pop();
-      const match = /\.(\w+)$/.exec(filename);
-      const type = match ? `video/${match[1]}` : `video`;
-
-      const formData = new FormData();
-      formData.append('file', {
-        uri: Platform.OS === 'android' ? videoUri : videoUri.replace('file://', ''),
-        name: filename,
-        type: type,
-      });
-
-      try {
-        const response = await axios.post(`${BASE_URL}/devices/${id}/upload`, formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        });
-        
-        if (response.data.status === 'success') {
-          setDevices(prev => prev.map(d => d.id === id ? { ...d, video_url: response.data.video_url } : d));
-          alert('Video uploaded successfully!');
-        }
-      } catch (error) {
-        console.error("Error uploading video:", error);
-        alert('Failed to upload video');
-      }
-    }
-  };
-
-  const filteredDevices = activeCategory === "Favorites" 
-    ? devices 
-    : devices.filter(d => d.room.toLowerCase() === activeCategory.toLowerCase());
-
-  const smallDevices = filteredDevices.filter(d => d.type !== 'ac' && d.type !== 'video');
-  const acDevice = filteredDevices.find(d => d.type === 'ac');
-  const videoDevices = filteredDevices.filter(d => d.type === 'video');
 
   return (
     <SafeAreaProvider>
-    <LinearGradient colors={['#0F172A', '#1E293B']} style={styles.container}>
-      <StatusBar barStyle="light-content" />
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <IconButton Icon={LayoutGrid} onPress={() => alert('Open Drawer Menu')} />
-            <Text style={styles.headerTitle}>My home</Text>
-          </View>
-          <View style={styles.headerRight}>
-            <View style={styles.profileIcon}>
-                <LinearGradient colors={['#F472B6', '#6366F1']} style={styles.profileGradient} />
+      <View style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
+        
+        {/* Main Dashboard */}
+        <SafeAreaView style={styles.safeArea}>
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.headerLeft}>
+              <TouchableOpacity onPress={toggleMenu} style={styles.iconBtn}>
+                <Menu color={COLORS.text} size={28} />
+              </TouchableOpacity>
+              <View style={styles.headerTextWrap}>
+                <Text style={styles.greeting}>Hi Vaishali</Text>
+                <Text style={styles.subtext}>Welcome to your Smart Home</Text>
+              </View>
             </View>
-            <IconButton Icon={Plus} onPress={() => alert('Add new device function')} />
+            <View style={styles.headerRight}>
+              <View style={styles.avatarStack}>
+                <View style={[styles.avatar, { zIndex: 3, backgroundColor: '#D4C4B7' }]} />
+                <View style={[styles.avatar, { zIndex: 2, backgroundColor: '#BDAE9D', marginLeft: -12 }]} />
+                <View style={[styles.avatar, { zIndex: 1, backgroundColor: '#A49586', marginLeft: -12 }]} />
+              </View>
+              <TouchableOpacity style={styles.plusBtn}>
+                <Plus color={COLORS.white} size={20} />
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
 
-        <View style={styles.categoryContainer}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
-            {categories.map(cat => (
-                <CategoryTab 
-                    key={cat} 
-                    name={cat} 
-                    active={cat === activeCategory} 
-                    onPress={() => setActiveCategory(cat)}
-                />
-            ))}
+          <ScrollView 
+            showsVerticalScrollIndicator={false} 
+            contentContainerStyle={styles.scrollContent}
+          >
+            
+            {/* Horizontal Room Slider */}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>All Rooms</Text>
+            </View>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false} 
+              style={styles.roomSlider}
+              contentContainerStyle={{ paddingHorizontal: 20 }}
+            >
+              {ROOMS.map((room) => (
+                <TouchableOpacity 
+                  key={room.id}
+                  onPress={() => setActiveRoom(room)}
+                  style={[
+                    styles.roomMiniCard, 
+                    activeRoom.id === room.id && styles.roomMiniCardActive
+                  ]}
+                >
+                  <LinearGradient
+                    colors={activeRoom.id === room.id ? [COLORS.active, '#AA7E61'] : [room.baseColor, '#D8CFB9']}
+                    style={styles.roomMiniGradient}
+                  >
+                    <Text style={[
+                      styles.roomMiniTitle,
+                      activeRoom.id === room.id && { color: COLORS.white }
+                    ]}>{room.name}</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              ))}
             </ScrollView>
-            <IconButton Icon={User} size={20} color="#94A3B8" onPress={() => alert('Switch User')} /> 
-        </View>
 
-        <ScrollView contentContainerStyle={styles.mainContent}>
-          {videoDevices.length > 0 && (
-            <View style={styles.videoSection}>
-              <Text style={styles.sectionTitle}>Cameras</Text>
-              {videoDevices.map(device => (
-                <VideoCard 
-                  key={device.id} 
-                  device={device} 
-                  onToggle={handleToggle} 
-                  onUpload={handleUpload}
-                  baseUrl={BASE_URL}
-                />
+            {/* Active Room Card Hero */}
+            <View style={styles.heroWrapper}>
+              <LinearGradient
+                colors={['rgba(255, 255, 255, 0.8)', 'rgba(255, 255, 255, 0.4)']}
+                style={styles.heroCard}
+              >
+                <View style={styles.heroHeader}>
+                  <View style={{ flex: 1, paddingRight: 20 }}>
+                    <Text style={styles.heroRoomName}>{activeRoom.name}</Text>
+                    <Text style={styles.heroContext}>
+                      Your {activeRoom.name.toLowerCase()} is connected with {activeRoom.devices} devices
+                    </Text>
+                  </View>
+                  <Text style={styles.heroTemp}>{activeRoom.temp}</Text>
+                </View>
+
+                {/* Flexible spacer */}
+                <View style={{ flex: 1 }} />
+
+                <View style={styles.devicesGrid}>
+                  <DeviceToggle 
+                    icon={Wifi} label="WiFi" 
+                    active={deviceStats.wifi} 
+                    onPress={() => setDeviceStats(s => ({ ...s, wifi: !s.wifi }))} 
+                  />
+                  <DeviceToggle 
+                    icon={Lightbulb} label="Light" 
+                    active={deviceStats.light} 
+                    onPress={() => setDeviceStats(s => ({ ...s, light: !s.light }))} 
+                  />
+                  <DeviceToggle 
+                    icon={Thermometer} label="Temp" 
+                    active={deviceStats.temp} 
+                    onPress={() => setDeviceStats(s => ({ ...s, temp: !s.temp }))} 
+                  />
+                  <DeviceToggle 
+                    icon={Fan} label="Fan" 
+                    active={deviceStats.fan} 
+                    onPress={() => setDeviceStats(s => ({ ...s, fan: !s.fan }))} 
+                  />
+                </View>
+              </LinearGradient>
+            </View>
+
+          </ScrollView>
+        </SafeAreaView>
+
+        {/* Dropdown Custom Alert Banner */}
+        <Animated.View style={[styles.alertBanner, alertAnimatedStyle]} pointerEvents="none">
+          <SafeAreaView edges={['top']}>
+            <View style={styles.alertInner}>
+              <View style={styles.alertIconCircle}>
+                {currentAlert?.icon && <currentAlert.icon color={COLORS.white} size={24} />}
+              </View>
+              <View style={styles.alertTexts}>
+                <Text style={styles.alertTitle}>{currentAlert?.title}</Text>
+                <Text style={styles.alertMessage} numberOfLines={2}>{currentAlert?.message}</Text>
+              </View>
+            </View>
+          </SafeAreaView>
+        </Animated.View>
+
+        {/* Sidebar Menu Drawer */}
+        <Animated.View style={[styles.drawer, drawerAnimatedStyle]}>
+          <SafeAreaView style={{ flex: 1 }}>
+            <View style={styles.drawerHeader}>
+              <Text style={styles.drawerTitle}>Menu</Text>
+              <TouchableOpacity onPress={toggleMenu} style={styles.closeBtn}>
+                <X color={COLORS.background} size={28} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.drawerList}>
+              {['Manage Users', 'Devices', 'Rooms', 'Music', 'Settings', 'Help', 'Logout'].map((item, i) => (
+                <TouchableOpacity key={i} style={styles.drawerItem}>
+                  <Text style={styles.drawerItemText}>{item}</Text>
+                </TouchableOpacity>
               ))}
             </View>
-          )}
+          </SafeAreaView>
+        </Animated.View>
 
-          <View style={styles.deviceGrid}>
-            {smallDevices.slice(0, 4).map(device => (
-              <DeviceCard key={device.id} device={device} onToggle={handleToggle} />
-            ))}
+        {/* Invisible Demo Trigger */}
+        <TouchableOpacity 
+          style={styles.demoTrigger}
+          onPress={handleHiddenTap}
+          activeOpacity={1}
+        />
+
+        {/* Pitch Demo Selection Modal */}
+        <Modal
+          visible={demoModalVisible}
+          animationType="fade"
+          transparent={true}
+          onRequestClose={() => setDemoModalVisible(false)}
+        >
+          <View style={styles.modalBg}>
+            <View style={styles.modalCard}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Pitch Demo Alerts</Text>
+                <TouchableOpacity onPress={() => setDemoModalVisible(false)}>
+                  <X color={COLORS.text} size={24} />
+                </TouchableOpacity>
+              </View>
+              <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: Dimensions.get('window').height * 0.6 }}>
+                {ALERTS.map((alert, idx) => (
+                  <TouchableOpacity 
+                    key={idx} 
+                    style={styles.modalAlertBtn}
+                    onPress={() => {
+                      setDemoModalVisible(false);
+                      showAlert(alert);
+                    }}
+                  >
+                    <Text style={styles.modalAlertTxt}>{alert.title}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
           </View>
+        </Modal>
 
-          {acDevice && (
-            <ACCard 
-                device={acDevice} 
-                onToggle={handleToggle} 
-                onSettingUpdate={handleSettingUpdate}
-            />
-          )}
-
-          <View style={styles.deviceGrid}>
-            {smallDevices.slice(4).map(device => (
-              <DeviceCard key={device.id} device={device} onToggle={handleToggle} />
-            ))}
-          </View>
-        </ScrollView>
-      </SafeAreaView>
-    </LinearGradient>
+      </View>
     </SafeAreaProvider>
   );
 }
 
+const DeviceToggle = ({ icon: Icon, label, active, onPress }) => (
+  <View style={styles.deviceCtrl}>
+    <TouchableOpacity 
+      activeOpacity={0.8}
+      onPress={onPress}
+      style={[
+        styles.toggleBtn, 
+        active ? styles.toggleActive : styles.toggleInactive
+      ]}
+    >
+      <Icon color={active ? COLORS.white : COLORS.text} size={30} />
+    </TouchableOpacity>
+    <Text style={styles.toggleLabel}>{label}</Text>
+  </View>
+);
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: COLORS.background,
   },
   safeArea: {
     flex: 1,
@@ -359,263 +347,284 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 15,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
   },
-  headerTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#F1F5F9',
-    marginLeft: 15,
+  iconBtn: {
+    marginRight: 16,
+  },
+  headerTextWrap: {
+    flex: 1,
+  },
+  greeting: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#382D25', // Extra dark for readability
+  },
+  subtext: {
+    fontSize: 14,
+    color: COLORS.text,
+    marginTop: 2,
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 15,
+    gap: 12,
   },
-  profileIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  avatarStack: {
+    flexDirection: 'row',
+  },
+  avatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 2,
+    borderColor: COLORS.background,
+  },
+  plusBtn: {
+    backgroundColor: COLORS.active,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scrollContent: {
+    paddingBottom: 50,
+  },
+  sectionHeader: {
+    paddingHorizontal: 20,
+    marginBottom: 16,
+    marginTop: 8,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#382D25',
+  },
+  roomSlider: {
+    marginBottom: 32,
+  },
+  roomMiniCard: {
+    width: 140,
+    height: 200,
+    marginRight: 16,
+    borderRadius: 24,
     overflow: 'hidden',
   },
-  profileGradient: {
+  roomMiniGradient: {
     flex: 1,
-  },
-  iconButton: {
-    padding: 5,
-  },
-  categoryContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingRight: 20,
-    marginVertical: 10,
-  },
-  categoryScroll: {
-    paddingHorizontal: 20,
-  },
-  tab: {
-    marginRight: 25,
-    paddingBottom: 5,
-  },
-  activeTab: {
-    borderBottomWidth: 2,
-    borderBottomColor: '#F1F5F9',
-  },
-  tabText: {
-    fontSize: 16,
-    color: '#94A3B8',
-    fontWeight: '600',
-  },
-  activeTabText: {
-    color: '#F1F5F9',
-  },
-  mainContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 30,
-  },
-  deviceGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  deviceCard: {
-    width: '48%',
-    backgroundColor: '#1E293B',
-    borderRadius: 24,
+    justifyContent: 'flex-end',
     padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#334155',
   },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  iconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#334155',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  thermostatIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 2,
-    borderColor: '#94A3B8',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  thermostatValue: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#F1F5F9',
-  },
-  activeIconContainer: {
-    backgroundColor: '#475569',
-  },
-  powerBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#334155',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  activePowerBtn: {
-    backgroundColor: '#10B981',
-    shadowColor: '#10B981',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
+  roomMiniCardActive: {
+    shadowColor: COLORS.active,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
     elevation: 8,
   },
-  cardInfo: {
-    gap: 4,
-  },
-  deviceName: {
+  roomMiniTitle: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#F1F5F9',
+    fontWeight: '600',
+    color: COLORS.text,
   },
-  roomName: {
-    fontSize: 12,
-    color: '#94A3B8',
+  heroWrapper: {
+    paddingHorizontal: 20,
   },
-  acCard: {
+  heroCard: {
     width: '100%',
-    backgroundColor: '#1E293B',
-    borderRadius: 24,
-    padding: 20,
-    marginVertical: 10,
-    borderWidth: 1,
-    borderColor: '#334155',
+    height: 420,
+    borderRadius: 32,
+    padding: 24,
+    // Glassmorphism and shadow
+    backgroundColor: COLORS.glassBg,
+    borderColor: 'rgba(255,255,255,0.8)',
+    borderWidth: 1.5,
+    shadowColor: COLORS.text,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 5,
   },
-  acHeader: {
+  heroHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
+    alignItems: 'flex-start',
   },
-  acInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 15,
-  },
-  acIcon: {
+  heroRoomName: {
     fontSize: 32,
+    fontWeight: '800',
+    color: '#382D25',
+    marginBottom: 6,
   },
-  acTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#F1F5F9',
+  heroContext: {
+    fontSize: 15,
+    color: COLORS.text,
+    lineHeight: 22,
   },
-  acControls: {
+  heroTemp: {
+    fontSize: 48,
+    fontWeight: '300',
+    color: COLORS.active,
+  },
+  devicesGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 10,
   },
-  acControlItem: {
+  deviceCtrl: {
     alignItems: 'center',
-    gap: 5,
+    gap: 12,
   },
-  controlLabel: {
+  toggleBtn: {
+    width: 68,
+    height: 98,
+    borderRadius: 34,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  toggleActive: {
+    backgroundColor: COLORS.active,
+    shadowColor: COLORS.active,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  toggleInactive: {
+    backgroundColor: COLORS.inactive,
+  },
+  toggleLabel: {
     fontSize: 14,
-    color: '#F1F5F9',
-    fontWeight: '500',
-    marginTop: 5,
-  },
-  controlValue: {
-    fontSize: 12,
-    color: '#94A3B8',
-  },
-  videoSection: {
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
     fontWeight: '700',
-    color: '#F1F5F9',
-    marginBottom: 15,
+    color: '#382D25',
   },
-  videoCard: {
-    backgroundColor: '#1E293B',
-    borderRadius: 24,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#334155',
-    marginBottom: 16,
-  },
-  videoPreview: {
-    height: 180,
-    backgroundColor: '#0F172A',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  videoContent: {
-    flex: 1,
-    width: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  videoOffline: {
-    gap: 10,
-  },
-  offlineText: {
-    color: '#4B5563',
-    fontWeight: '600',
-  },
-  liveBadge: {
+  alertBanner: {
     position: 'absolute',
-    top: 15,
-    left: 15,
-    backgroundColor: '#EF4444',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
+    top: 0, left: 0, right: 0,
+    backgroundColor: '#D1664F', // Warm aesthetic danger color
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    zIndex: 100,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 10,
   },
-  liveText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '900',
+  alertInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    paddingTop: Platform.OS === 'android' ? 40 : 20,
   },
-  videoFooter: {
+  alertIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  alertTexts: {
+    marginLeft: 16,
+    flex: 1,
+  },
+  alertTitle: {
+    color: COLORS.white,
+    fontSize: 17,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  alertMessage: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  drawer: {
+    position: 'absolute',
+    top: 0, bottom: 0, left: 0,
+    width: width * 0.75,
+    backgroundColor: COLORS.menuBg,
+    zIndex: 50,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 8, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 20,
+  },
+  drawerHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#1E293B',
+    marginTop: Platform.OS === 'android' ? 24 : 10,
+    marginBottom: 40,
   },
-  videoActive: {
-      flex: 1,
-      width: '100%',
+  drawerTitle: {
+    color: COLORS.background,
+    fontSize: 28,
+    fontWeight: '800',
   },
-  fullVideo: {
-    width: '100%',
-    height: '100%',
+  closeBtn: {
+    padding: 8,
   },
-  videoActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+  drawerList: {
+    gap: 32,
   },
-  uploadBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#334155',
+  drawerItem: {
+    paddingVertical: 4,
+  },
+  drawerItemText: {
+    color: COLORS.background,
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  demoTrigger: {
+    position: 'absolute',
+    bottom: 0, right: 0,
+    width: 80, height: 80,
+    zIndex: 999,
+  },
+  modalBg: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  modalCard: {
+    width: '85%',
+    backgroundColor: COLORS.background,
+    borderRadius: 28,
+    padding: 24,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#382D25',
+  },
+  modalAlertBtn: {
+    backgroundColor: COLORS.active,
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 12,
+  },
+  modalAlertTxt: {
+    color: COLORS.white,
+    fontWeight: '700',
+    fontSize: 15,
   }
 });
