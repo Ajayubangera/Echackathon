@@ -2,21 +2,37 @@ import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity, StatusBar, Platform } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Plus, LayoutGrid, User, Power, Thermometer, Wind, Grid2X2, Lock, Video, VideoOff } from 'lucide-react-native';
+import { Plus, LayoutGrid, User, Power, Thermometer, Wind, Grid2X2, Lock, Video, VideoOff, Upload } from 'lucide-react-native';
 import axios from 'axios';
+import * as ImagePicker from 'expo-image-picker';
+import { Video as ExpoVideo } from 'expo-av';
 
-const VideoCard = ({ device, onToggle }) => {
+const VideoCard = ({ device, onToggle, onUpload, baseUrl }) => {
   const isActive = device.status;
+  const videoSource = device.video_url ? { uri: `${baseUrl}${device.video_url}` } : null;
   
   return (
     <View style={styles.videoCard}>
       <View style={styles.videoPreview}>
         {isActive ? (
           <View style={styles.videoActive}>
-            <LinearGradient colors={['#1F2937', '#111827']} style={styles.videoContent}>
-              <Video size={48} color="#10B981" />
-              <View style={styles.liveBadge}><Text style={styles.liveText}>LIVE</Text></View>
-            </LinearGradient>
+            {videoSource ? (
+              <ExpoVideo
+                source={videoSource}
+                rate={1.0}
+                volume={1.0}
+                isMuted={false}
+                resizeMode="cover"
+                shouldPlay
+                isLooping
+                style={styles.fullVideo}
+              />
+            ) : (
+              <LinearGradient colors={['#1F2937', '#111827']} style={styles.videoContent}>
+                <Video size={48} color="#10B981" />
+                <View style={styles.liveBadge}><Text style={styles.liveText}>LIVE</Text></View>
+              </LinearGradient>
+            )}
           </View>
         ) : (
           <View style={[styles.videoContent, styles.videoOffline]}>
@@ -30,12 +46,20 @@ const VideoCard = ({ device, onToggle }) => {
           <Text style={styles.deviceName}>{device.name}</Text>
           <Text style={styles.roomName}>{device.room}</Text>
         </View>
-        <TouchableOpacity 
-          onPress={() => onToggle(device.id)}
-          style={[styles.powerBtn, isActive && styles.activePowerBtn]}
-        >
-          <Power size={18} color={isActive ? "#FFFFFF" : "#94A3B8"} />
-        </TouchableOpacity>
+        <View style={styles.videoActions}>
+          <TouchableOpacity 
+            onPress={() => onUpload(device.id)}
+            style={styles.uploadBtn}
+          >
+            <Upload size={18} color="#94A3B8" />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            onPress={() => onToggle(device.id)}
+            style={[styles.powerBtn, isActive && styles.activePowerBtn]}
+          >
+            <Power size={18} color={isActive ? "#FFFFFF" : "#94A3B8"} />
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -141,17 +165,17 @@ const BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://lo
 
 export default function App() {
   const [devices, setDevices] = useState([
-    {"id": "1", "name": "Light", "room": "Living room", "type": "light", "status": true, "icon": "lightbulb"},
-    {"id": "2", "name": "Thermostat", "room": "Living room", "type": "thermostat", "status": false, "value": "30.5°C", "icon": "thermometer"},
-    {"id": "3", "name": "Air purifier", "room": "Living room", "type": "air_purifier", "status": true, "icon": "wind"},
-    {"id": "4", "name": "Switch", "room": "Living room", "type": "switch", "status": true, "icon": "toggle-right"},
-    {"id": "5", "name": "Air conditioner", "room": "Living room", "type": "ac", "status": true, "value": "25°C", "icon": "snowflake", "wind": "Strong", "mode": "Mode 1", "child_lock": true},
-    {"id": "6", "name": "Sweeper", "room": "Living room", "type": "sweeper", "status": false, "icon": "bot"},
-    {"id": "7", "name": "Light", "room": "Bedroom", "type": "light", "status": false, "icon": "lightbulb"},
-    {"id": "8", "name": "Light", "room": "Kitchen", "type": "light", "status": true, "icon": "lightbulb"},
-    {"id": "9", "name": "Entrance Cam", "room": "Living room", "type": "video", "status": true, "icon": "video"},
-    {"id": "10", "name": "Nursery Cam", "room": "Bedroom", "type": "video", "status": true, "icon": "video"},
-    {"id": "11", "name": "Kitchen Cam", "room": "Kitchen", "type": "video", "status": false, "icon": "video"},
+    {"id": "1", "name": "Light", "room": "Living room", "type": "light", "status": true, "icon": "lightbulb", "video_url": null},
+    {"id": "2", "name": "Thermostat", "room": "Living room", "type": "thermostat", "status": false, "value": "30.5°C", "icon": "thermometer", "video_url": null},
+    {"id": "3", "name": "Air purifier", "room": "Living room", "type": "air_purifier", "status": true, "icon": "wind", "video_url": null},
+    {"id": "4", "name": "Switch", "room": "Living room", "type": "switch", "status": true, "icon": "toggle-right", "video_url": null},
+    {"id": "5", "name": "Air conditioner", "room": "Living room", "type": "ac", "status": true, "value": "25°C", "icon": "snowflake", "wind": "Strong", "mode": "Mode 1", "child_lock": true, "video_url": null},
+    {"id": "6", "name": "Sweeper", "room": "Living room", "type": "sweeper", "status": false, "icon": "bot", "video_url": null},
+    {"id": "7", "name": "Light", "room": "Bedroom", "type": "light", "status": false, "icon": "lightbulb", "video_url": null},
+    {"id": "8", "name": "Light", "room": "Kitchen", "type": "light", "status": true, "icon": "lightbulb", "video_url": null},
+    {"id": "9", "name": "Entrance Cam", "room": "Living room", "type": "video", "status": true, "icon": "video", "video_url": null},
+    {"id": "10", "name": "Nursery Cam", "room": "Bedroom", "type": "video", "status": true, "icon": "video", "video_url": null},
+    {"id": "11", "name": "Kitchen Cam", "room": "Kitchen", "type": "video", "status": false, "icon": "video", "video_url": null},
   ]);
   const [categories] = useState(["Favorites", "Living room", "Bedroom", "Kitchen"]);
   const [activeCategory, setActiveCategory] = useState("Living room");
@@ -204,6 +228,45 @@ export default function App() {
     setDevices(updatedDevices);
   };
 
+  const handleUpload = async (id) => {
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      allowsEditing: true,
+      aspect: [16, 9],
+      quality: 1,
+    });
+
+    if (!result.canceled) {
+      const videoUri = result.assets[0].uri;
+      const filename = videoUri.split('/').pop();
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `video/${match[1]}` : `video`;
+
+      const formData = new FormData();
+      formData.append('file', {
+        uri: Platform.OS === 'android' ? videoUri : videoUri.replace('file://', ''),
+        name: filename,
+        type: type,
+      });
+
+      try {
+        const response = await axios.post(`${BASE_URL}/devices/${id}/upload`, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        });
+        
+        if (response.data.status === 'success') {
+          setDevices(prev => prev.map(d => d.id === id ? { ...d, video_url: response.data.video_url } : d));
+          alert('Video uploaded successfully!');
+        }
+      } catch (error) {
+        console.error("Error uploading video:", error);
+        alert('Failed to upload video');
+      }
+    }
+  };
+
   const filteredDevices = activeCategory === "Favorites" 
     ? devices 
     : devices.filter(d => d.room.toLowerCase() === activeCategory.toLowerCase());
@@ -249,7 +312,13 @@ export default function App() {
             <View style={styles.videoSection}>
               <Text style={styles.sectionTitle}>Cameras</Text>
               {videoDevices.map(device => (
-                <VideoCard key={device.id} device={device} onToggle={handleToggle} />
+                <VideoCard 
+                  key={device.id} 
+                  device={device} 
+                  onToggle={handleToggle} 
+                  onUpload={handleUpload}
+                  baseUrl={BASE_URL}
+                />
               ))}
             </View>
           )}
@@ -531,5 +600,22 @@ const styles = StyleSheet.create({
   videoActive: {
       flex: 1,
       width: '100%',
+  },
+  fullVideo: {
+    width: '100%',
+    height: '100%',
+  },
+  videoActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  uploadBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#334155',
+    justifyContent: 'center',
+    alignItems: 'center',
   }
 });
